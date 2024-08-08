@@ -2,6 +2,7 @@
 """
 Definition of class Auth
 """
+import os
 from flask import request
 from typing import (
     List,
@@ -11,11 +12,11 @@ from typing import (
 
 class Auth:
     """
-    Manages API authentication
+    Manages the API authentication
     """
     def require_auth(self, path: str, excluded_paths: List[str]) -> bool:
         """
-        Determines whether given path requires authentication or not
+        Determines whether a given path requires authentication or not
         Args:
             - path(str): Url path to be checked
             - excluded_paths(List of str): List of paths that do not require
@@ -42,7 +43,7 @@ class Auth:
 
     def authorization_header(self, request=None) -> str:
         """
-        Return authorization header from request object
+        Returns the authorization header from a request object
         """
         if request is None:
             return None
@@ -53,6 +54,19 @@ class Auth:
 
     def current_user(self, request=None) -> TypeVar('User'):
         """
-        Return User instance from information from request object
+        Returns a User instance from information from a request object
         """
         return None
+
+    def session_cookie(self, request=None):
+        """
+        Returns a cookie from a request
+        Args:
+            request : request object
+        Return:
+            value of _my_session_id cookie from request object
+        """
+        if request is None:
+            return None
+        session_name = os.getenv('SESSION_NAME')
+        return request.cookies.get(session_name)
