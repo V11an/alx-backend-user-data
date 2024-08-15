@@ -1,27 +1,162 @@
 #!/usr/bin/env python3
 """
-Method to hash passwords
+Definition of authentication functions
 """
 import bcrypt
+from uuid import uuid4
+from sqlalchemy.orm.exc import NoResultFound
+from typing import (
+    TypeVar,
+    Union
+)
+
+from db import DB
+from user import User
+
+U = TypeVar(User)
 
 
 def _hash_password(password: str) -> bytes:
-    """Hashes a password using bcrypt and returns the salted hash in bytes.
-
+    """
+    Hashes a password string and returns it in bytes form
     Args:
-        password: The password to hash (string).
+        password (str): password in string format
+    """
+    passwd = password.encode('utf-8')
+    return bcrypt.hashpw(passwd, bcrypt.gensalt())
 
-    Returns:
-        The salted hash of the password (bytes).
+
+def _generate_uuid() -> str:
+    """
+    Generates uuid and return its string representation
+    """
+    return str(uuid4())
+
+
+class Auth:
+    """Class Auth to interact with the authentication database.
     """
 
-    # Encode the password as bytes (recommended for bcrypt)
-    password_bytes = password.encode("utf-8")
+    def __init__(self) -> None:
+        self._db = DB()
 
-    # Generate a random salt
-    salt = bcrypt.gensalt()
+    def register_user(self, email: str, password: str) -> User:
+        """
+        Registers new user and return user object
+        Args:
+            email (str): new user's email address
+            password (str): new user's password
+        Return:
+            if no user with given email exists, return newly created user
+            else raise ValueError
+        """
+        try:
+            self._db.find_user_by(email=email)
+        except NoResultFound:
+            hashed = _hash_password(password)
+            usr = self._db.add_user(email, hashed)
+            return usr
+        raise ValueError(f"User {email} already exists")
 
-    # Hash the password with the salt
-    hashed_password = bcrypt.hashpw(password_bytes, salt)
+    def valid_login(self, email: str, password: str) -> bool:
+        """
+        Validates user's login credentials and return True if correct
+        , False if not
+        Args:
+            email (str): the user's email address
+            password (str): the user's password
+        Return:
+            True if credentials are correct else False
+        """
+        try:
+            user = self._db.find_user_by(email=email)
+        except NoResultFound:
+            return False
 
-    return hashed_password
+        user_password = user.hashed_password
+        passwd = password.encode("utf-8")
+        return bcrypt.checkpw(passwd, user_password)
+
+    def create_session(self, email: str) -> Union[None, str]:
+        """
+        Creates session_id for existing user and updates the user's
+        session_id attribute
+        Args:
+            email (str): the user's email address
+        """
+        try:
+            user = self._db.find_user_by(email=email)
+        except NoResultFound:
+            return None
+
+        session_id = _generate_uuid()
+        self._db.update_user(user.id, session_id=session_id)
+        return session_id
+
+    def get_user_from_session_id(self, session_id: str) -> Union[None, U]:
+        """
+        Takes session_id and returns the corresponding user if one exists
+        else return none
+        Args:
+            session_id (str): session id for user
+        Return:
+            the user object if found else None
+        """
+        if session_id is None:
+            return None
+
+        try:
+            user = self._db.find_user_by(session_id=session_id)
+        except NoResultFound:
+            return None
+
+        return user
+
+    def destroy_session(self, user_id: int) -> None:
+        """
+        Takes user_id and destroy that user's session and updates their
+        session_id attribute to None
+        Args:
+            user_id (int): the user's id
+        Return:
+            None
+        """
+        try:
+            self._db.update_user(user_id, session_id=None)
+        except ValueError:
+            return None
+        return None
+
+    def get_reset_password_token(self, email: str) -> str:
+        """
+        Generates reset_token uuid for user identified by the given email
+        Args:
+            email (str): the user's email address
+        Return:
+            the newly generated reset_token for the relevant user
+        """
+        try:
+            user = self._db.find_user_by(email=email)
+        except NoResultFound:
+            raise ValueError
+
+        reset_token = _generate_uuid()
+        self._db.update_user(user.id, reset_token=reset_token)
+        return reset_token
+
+    def update_password(self, reset_token: str, password: str) -> None:
+        """
+        Updates user's password
+        Args:
+            reset_token (str): reset_token issued to reset password
+            password (str): the user's new password
+        Return:
+            None(0)
+        """
+        try:
+            user = self._db.find_user_by(reset_token=reset_token)
+        except NoResultFound:
+            raise ValueError()
+
+        hashed = _hash_password(password)
+        self._db.update_user(user.id, hashed_password=hashed, reset_token=None)
